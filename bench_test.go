@@ -446,6 +446,40 @@ func BenchmarkFootprint(b *testing.B) {
 	}
 }
 
+func BenchmarkDeleteHeavyFootprint(b *testing.B) {
+	for _, size := range mutationBenchSizes() {
+		data := newBenchData(size.n)
+		positions := deleteHeavyPositions(b, data)
+		keys := make([][]byte, len(positions))
+		for i, pos := range positions {
+			key, ok := data.records.Key(pos)
+			if !ok {
+				b.Fatalf("missing key at position %d", pos)
+			}
+			keys[i] = key
+		}
+
+		b.Run(size.name+"/min_patricia", func(b *testing.B) {
+			var liveNodes, liveKeys int
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				idx := buildPatricia(b, data)
+				for _, key := range keys {
+					if _, deleted, err := idx.Delete(key); err != nil || !deleted {
+						b.Fatalf("Delete(%q) deleted=%v err=%v", key, deleted, err)
+					}
+				}
+				liveNodes = idx.LiveNodes()
+				liveKeys = idx.Len()
+			}
+			b.StopTimer()
+			b.ReportMetric(float64(len(keys)), "deleted/op")
+			b.ReportMetric(float64(liveNodes), "nodes/op")
+			b.ReportMetric(float64(liveNodes*NodeSize)/float64(liveKeys), "node_B/live_key")
+		})
+	}
+}
+
 func benchmarkPerItem(b *testing.B, items int, runBatch func()) {
 	b.Helper()
 

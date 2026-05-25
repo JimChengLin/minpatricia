@@ -653,6 +653,52 @@ func TestDeleteAllMaintainsRoutes(t *testing.T) {
 	}
 }
 
+func TestDeleteHeavyKeepsLookupConsistent(t *testing.T) {
+	data := newBenchData(100_000)
+	positions := deleteHeavyPositions(t, data)
+	idx := buildPatricia(t, data)
+	expected := make(map[string]Position, len(data.keys))
+	for i, key := range data.keys {
+		expected[string(key)] = data.position[i]
+	}
+
+	for _, pos := range positions {
+		key, ok := data.records.Key(pos)
+		if !ok {
+			t.Fatalf("missing key at position %d", pos)
+		}
+		if _, deleted, err := idx.Delete(key); err != nil || !deleted {
+			t.Fatalf("Delete(%q) deleted=%v err=%v", key, deleted, err)
+		}
+		if _, ok, err := idx.Get(key); err != nil || ok {
+			t.Fatalf("Get(%q) after delete ok=%v err=%v", key, ok, err)
+		}
+		delete(expected, string(key))
+	}
+
+	for key, want := range expected {
+		got, ok, err := idx.Get([]byte(key))
+		if err != nil || !ok || got != want {
+			t.Fatalf("Get(%q) = (%d,%v,%v), want (%d,true,nil)", key, got, ok, err, want)
+		}
+	}
+
+	visited := 0
+	if err := idx.Visit(func(key []byte, pos Position) bool {
+		if expected[string(key)] != pos {
+			t.Fatalf("Visit(%q) pos=%d, want %d", key, pos, expected[string(key)])
+		}
+		visited++
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if visited != len(expected) {
+		t.Fatalf("Visit count = %d, want %d", visited, len(expected))
+	}
+	assertIndexRoutesValid(t, idx)
+}
+
 func assertIndexMatchesMap(t *testing.T, idx *Index, keys memKeys, expected map[string]Position) {
 	t.Helper()
 
