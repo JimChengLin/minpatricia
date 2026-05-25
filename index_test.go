@@ -655,6 +655,7 @@ func assertIndexMatchesMap(t *testing.T, idx *Index, keys memKeys, expected map[
 			t.Fatalf("Visit returned unexpected key %q", key)
 		}
 	}
+	assertIndexRoutesValid(t, idx)
 }
 
 func assertIterKeys(t *testing.T, name string, want []string, run func(ItemIterator) error) {
@@ -680,4 +681,48 @@ func contains(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func assertIndexRoutesValid(t *testing.T, idx *Index) {
+	t.Helper()
+
+	root, err := idx.root()
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNodeRoutesValid(t, idx, root)
+}
+
+func assertNodeRoutesValid(t *testing.T, idx *Index, n *node) {
+	t.Helper()
+
+	size := int(n.size)
+	if size > 1 {
+		var gotBuf [MaxNodeReps - 1]uint16
+		got := gotBuf[:size-1]
+		if err := n.routeDiffs(got); err != nil {
+			t.Fatal(err)
+		}
+		want, err := idx.buildDiffs(n.reps[:size])
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := range got {
+			if got[i] != want[i] {
+				t.Fatalf("route diff[%d] = %d, want %d", i, got[i], want[i])
+			}
+		}
+	}
+
+	for i := 0; i < size; i++ {
+		r := n.reps[i]
+		if !r.isChild() {
+			continue
+		}
+		child, err := idx.nodeByID(r.childID())
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertNodeRoutesValid(t, idx, child)
+	}
 }

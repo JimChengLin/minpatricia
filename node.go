@@ -16,7 +16,7 @@ func (idx *Index) insertOrReplace(key []byte, newRep rep) (Position, bool, error
 			return 0, false, err
 		}
 		if n.size == 0 {
-			if err := idx.insertAt(id, 0, newRep); err != nil {
+			if err := idx.insertAtIncremental(id, 0, newRep, key, 0); err != nil {
 				return 0, false, err
 			}
 			return 0, false, nil
@@ -53,7 +53,7 @@ func (idx *Index) insertOrReplace(key []byte, newRep rep) (Position, bool, error
 		if err != nil {
 			return 0, false, err
 		}
-		if err := idx.insertAtPath(frames, target, slot, newRep); err != nil {
+		if err := idx.insertAtPath(frames, target, slot, newRep, key, diff); err != nil {
 			return 0, false, err
 		}
 		return 0, false, nil
@@ -79,7 +79,7 @@ func (idx *Index) insertSlotFromPath(frames []putFrame, key []byte, cmp int, dif
 	return len(frames) - 1, last.leaf + 1, nil
 }
 
-func (idx *Index) insertAtPath(frames []putFrame, target int, slot int, newRep rep) error {
+func (idx *Index) insertAtPath(frames []putFrame, target int, slot int, newRep rep, key []byte, diff uint16) error {
 	targetID := frames[target].id
 	n, err := idx.nodeByID(targetID)
 	if err != nil {
@@ -89,7 +89,7 @@ func (idx *Index) insertAtPath(frames []putFrame, target int, slot int, newRep r
 
 	size := int(n.size)
 	if size < MaxNodeReps {
-		if err := idx.insertAt(targetID, slot, newRep); err != nil {
+		if err := idx.insertAtIncremental(targetID, slot, newRep, key, diff); err != nil {
 			return err
 		}
 		return idx.propagateBoundary(frames, target, oldFirst, oldLast)
@@ -185,7 +185,7 @@ func (idx *Index) promoteSibling(parentID uint64, childSlot int, childID uint64,
 	return idx.writeNodeWithDiffs(parentID, newParentReps, newDiffs)
 }
 
-func (idx *Index) insertAt(id uint64, slot int, newRep rep) error {
+func (idx *Index) insertAtIncremental(id uint64, slot int, newRep rep, key []byte, diff uint16) error {
 	n, err := idx.nodeByID(id)
 	if err != nil {
 		return err
@@ -194,56 +194,43 @@ func (idx *Index) insertAt(id uint64, slot int, newRep rep) error {
 	if slot < 0 || slot > size {
 		return ErrCorruptLayout
 	}
-
-	if size < MaxNodeReps {
-		var diffBuf [MaxNodeReps - 1]uint16
-		newDiffs := diffBuf[:size]
-		if err := idx.insertDiffs(n, slot, newRep, newDiffs); err != nil {
-			return err
-		}
-		copy(n.reps[slot+1:], n.reps[slot:size])
-		n.reps[slot] = newRep
-		n.size = uint16(size + 1)
-		return idx.rebuildNodeWithDiffs(n, newDiffs)
+	if size >= MaxNodeReps {
+		return idx.insertFullAt(id, n, slot, newRep)
 	}
-	return idx.insertFullAt(id, n, slot, newRep)
-}
 
-func (idx *Index) insertDiffs(n *node, slot int, newRep rep, newDiffs []uint16) error {
-	size := int(n.size)
-	if len(newDiffs) != size || slot < 0 || slot > size {
-		return ErrCorruptLayout
-	}
+	firstPos, lastPos := n.firstPos, n.lastPos
 	if size == 0 {
-		return nil
-	}
-
-	var oldDiffBuf [MaxNodeReps - 1]uint16
-	oldDiffs := oldDiffBuf[:size-1]
-	if err := n.routeDiffs(oldDiffs); err != nil {
-		return err
-	}
-
-	if slot > 1 {
-		copy(newDiffs[:slot-1], oldDiffs[:slot-1])
-	}
-	if slot > 0 {
-		diff, err := idx.diffBetweenReps(n.reps[slot-1], newRep)
+		firstPos, err = idx.minPos(newRep)
 		if err != nil {
 			return err
 		}
-		newDiffs[slot-1] = diff
-	}
-	if slot < size {
-		diff, err := idx.diffBetweenReps(newRep, n.reps[slot])
+		lastPos, err = idx.maxPos(newRep)
 		if err != nil {
 			return err
 		}
-		newDiffs[slot] = diff
+	} else {
+		if slot == 0 {
+			firstPos, err = idx.minPos(newRep)
+			if err != nil {
+				return err
+			}
+		}
+		if slot == size {
+			lastPos, err = idx.maxPos(newRep)
+			if err != nil {
+				return err
+			}
+		}
+		if err := n.insertRoute(slot, key, diff); err != nil {
+			return err
+		}
 	}
-	if slot < size-1 {
-		copy(newDiffs[slot+1:], oldDiffs[slot:])
-	}
+
+	copy(n.reps[slot+1:], n.reps[slot:size])
+	n.reps[slot] = newRep
+	n.size = uint16(size + 1)
+	n.firstPos = firstPos
+	n.lastPos = lastPos
 	return nil
 }
 
@@ -608,119 +595,4 @@ func (idx *Index) countRecords(n *node) (int, error) {
 		total += childCount
 	}
 	return total, nil
-}
-
-func (n *node) lookup(key []byte) (int, bool) {
-	return n.lookupRouteOnly(key)
-}
-
-func (n *node) lookupRouteOnly(key []byte) (int, bool) {
-	size := int(n.size)
-	if size == 0 {
-		return 0, false
-	}
-
-	routeIdx := 0
-	leafBase := 0
-	leafCount := size
-
-	for leafCount > 1 {
-		r := n.routes[routeIdx]
-		if getDiffBit(key, r.diff) == 0 {
-			routeIdx++
-			leafCount = int(r.leftCount)
-		} else {
-			routeIdx += int(r.leftCount)
-			leafBase += int(r.leftCount)
-			leafCount -= int(r.leftCount)
-		}
-	}
-	return leafBase, true
-}
-
-func (n *node) routeDiffs(out []uint16) error {
-	size := int(n.size)
-	if len(out) != size-1 {
-		return ErrCorruptLayout
-	}
-	if size <= 1 {
-		return nil
-	}
-
-	var stackBuf [MaxNodeReps]routeFrame
-	stack := stackBuf[:1]
-	stack[0] = routeFrame{node: 0, leafL: 0, leafR: size}
-	for len(stack) > 0 {
-		frame := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-
-		if frame.node < 0 || frame.node >= size-1 {
-			return ErrCorruptLayout
-		}
-		r := n.routes[frame.node]
-		leftCount := int(r.leftCount)
-		diffIdx := frame.leafL + leftCount - 1
-		if leftCount <= 0 || diffIdx < frame.leafL || diffIdx >= frame.leafR-1 {
-			return ErrCorruptLayout
-		}
-		out[diffIdx] = r.diff
-
-		rightIdx := frame.node + leftCount
-		if diffIdx+1 < frame.leafR-1 {
-			stack = append(stack, routeFrame{
-				node:  rightIdx,
-				leafL: diffIdx + 1,
-				leafR: frame.leafR,
-			})
-		}
-		if frame.leafL < diffIdx {
-			stack = append(stack, routeFrame{
-				node:  frame.node + 1,
-				leafL: frame.leafL,
-				leafR: diffIdx + 1,
-			})
-		}
-	}
-	return nil
-}
-
-func (n *node) insertSlotAbovePath(key []byte, diff uint16, wantLeaf int) (int, bool, error) {
-	size := int(n.size)
-	if size == 0 {
-		return 0, false, nil
-	}
-	if wantLeaf < 0 || wantLeaf >= size {
-		return 0, false, ErrCorruptLayout
-	}
-
-	routeIdx := 0
-	leafBase := 0
-	leafCount := size
-
-	for leafCount > 1 {
-		if routeIdx < 0 || routeIdx >= size-1 {
-			return 0, false, ErrCorruptLayout
-		}
-		r := n.routes[routeIdx]
-		if diff < r.diff {
-			if getDiffBit(key, diff) == 0 {
-				return leafBase, true, nil
-			}
-			return leafBase + leafCount, true, nil
-		}
-
-		if getDiffBit(key, r.diff) == 0 {
-			routeIdx++
-			leafCount = int(r.leftCount)
-		} else {
-			routeIdx += int(r.leftCount)
-			leafBase += int(r.leftCount)
-			leafCount -= int(r.leftCount)
-		}
-	}
-
-	if leafBase != wantLeaf {
-		return 0, false, ErrCorruptLayout
-	}
-	return 0, false, nil
 }
