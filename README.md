@@ -48,34 +48,41 @@ Use `NewWithRecords(records)` when records live in your own store.
 
 ## Benchmarks
 
-Apple M1 Pro, Go 1.22, 100K random keys, `-benchtime=500ms`.
+Apple M1 Pro, Go 1.25.1,
+`MIN_PATRICIA_BENCH_LARGE=1 go test -run ^$ -bench . -benchmem -benchtime=500ms -count=1`.
+The table reports the 100K-key rows from the full benchmark suite.
 
 | operation | go map | google/btree | minpatricia |
 |---|---:|---:|---:|
-| Get | 15.98 ns/op | 236.2 ns/op | 153.7 ns/op |
-| Seek >= | - | 270.2 ns/op | 187.0 ns/op |
-| Seek <= | - | 287.3 ns/op | 187.8 ns/op |
-| Replace | 29.99 ns/op | 291.7 ns/op | 178.0 ns/op |
-| Build insert, per key | 22.03 ns/op | 318.6 ns/op | 5928 ns/op |
-| Delete-heavy | 60.54 ns/op | 216.1 ns/op | 1504 ns/op |
+| Get | 17.85 ns/op | 274.2 ns/op | 159.0 ns/op |
+| Seek >= | - | 306.6 ns/op | 205.9 ns/op |
+| Seek <= | - | 293.0 ns/op | 195.0 ns/op |
+| Replace | 23.46 ns/op | 290.1 ns/op | 180.6 ns/op |
+| Build insert, per key | 22.34 ns/op | 317.1 ns/op | 708.1 ns/op |
+| Visit ordered | 17,586,489 ns/op | 244,417 ns/op | 1,124,837 ns/op |
+| Delete-heavy | 63.25 ns/op | 208.1 ns/op | 266.5 ns/op |
 
-Node-store footprint for the same 100K-key benchmark:
+Node-store footprint for the same 100K-key benchmark. Node size is 4096
+bytes and each node can hold up to 339 route entries.
 
-| metric | value |
-|---|---:|
-| node size | 4096 bytes |
-| max reps per node | 339 |
-| live nodes | 513 |
-| node-store bytes | 2,101,248 bytes |
-| node-store bytes per key | 21.01 B/key |
+| scenario | deleted records | live records | live nodes | node-store bytes | node-store bytes per live key |
+|---|---:|---:|---:|---:|---:|
+| Build | 0 | 100,000 | 513 | 2,101,248 bytes | 21.01 B/key |
+| Delete-heavy | 73,279 | 26,721 | 167 | 684,032 bytes | 25.60 B/key |
 
 This footprint excludes caller-owned keys and payloads.
 
 ## Write Tradeoff
 
-Writes are the expected weak spot. The index uses fixed 4KB nodes so node IDs
-can later translate to `mmap_base + id * 4096`, and it stores only compact
-routes plus record positions inside the index. Insert/delete can therefore pay
-for rebuilding a 4KB node route tree and occasionally splitting or merging
-nodes. That is slower than a Go map write, but keeps the index compact,
-ordered, and mmap-friendly.
+Writes are still the expected weak spot. The index uses fixed 4KB nodes so node
+IDs can later translate to `mmap_base + id * 4096`, and it stores only compact
+routes plus record positions inside the index. Insert/delete update the
+affected route incrementally when the target node has room or can shrink in
+place; they rebuild affected 4KB node route trees only when a page split,
+subtree split, child merge, or direct sibling merge changes the node shape.
+That is slower than a Go map write, but keeps the index compact, ordered, and
+mmap-friendly.
+
+## License
+
+MIT
