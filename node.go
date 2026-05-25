@@ -570,7 +570,10 @@ func absInt(v int) int {
 }
 
 func (idx *Index) compressRoot() error {
-	root := idx.root()
+	root, err := idx.root()
+	if err != nil {
+		return err
+	}
 	for root.size == 1 && root.reps[0].isChild() {
 		childID := root.reps[0].childID()
 		child, err := idx.nodeByID(childID)

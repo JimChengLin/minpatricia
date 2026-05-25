@@ -326,7 +326,10 @@ func (idx *Index) positionAtOrBefore(path *iterPath, target int, slot int) (bool
 
 func (idx *Index) leftmostRoot(path *iterPath) (bool, error) {
 	path.reset()
-	root := idx.root()
+	root, err := idx.root()
+	if err != nil {
+		return false, err
+	}
 	if root.size == 0 {
 		return false, nil
 	}
@@ -335,7 +338,10 @@ func (idx *Index) leftmostRoot(path *iterPath) (bool, error) {
 
 func (idx *Index) rightmostRoot(path *iterPath) (bool, error) {
 	path.reset()
-	root := idx.root()
+	root, err := idx.root()
+	if err != nil {
+		return false, err
+	}
 	if root.size == 0 {
 		return false, nil
 	}

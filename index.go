@@ -79,7 +79,10 @@ func (idx *Index) Get(key []byte) (Position, bool, error) {
 		return 0, false, err
 	}
 
-	n := idx.root()
+	n, err := idx.root()
+	if err != nil {
+		return 0, false, err
+	}
 	for {
 		leaf, ok := n.lookup(key)
 		if !ok {
@@ -141,7 +144,7 @@ func (idx *Index) Delete(key []byte) (Position, bool, error) {
 		return 0, false, err
 	}
 
-	pos, deleted, err := idx.deleteFrom(0, key)
+	pos, deleted, err := idx.deleteFrom(idx.rootID, key)
 	if err != nil {
 		return 0, false, err
 	}
@@ -162,12 +165,8 @@ func (idx *Index) LiveNodes() int {
 	return idx.nodes.LiveNodes()
 }
 
-func (idx *Index) root() *node {
-	root, err := idx.nodeByID(idx.rootID)
-	if err != nil {
-		panic(err)
-	}
-	return root
+func (idx *Index) root() (*node, error) {
+	return idx.nodeByID(idx.rootID)
 }
 
 func (idx *Index) nodeByID(id uint64) (*node, error) {

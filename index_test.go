@@ -16,6 +16,57 @@ func (m memKeys) Key(pos Position) ([]byte, bool) {
 	return key, ok
 }
 
+type nonZeroRootNodeStore struct {
+	root  uint64
+	nodes []*node
+	live  int
+}
+
+func newNonZeroRootNodeStore(root uint64) *nonZeroRootNodeStore {
+	nodes := make([]*node, root+1)
+	nodes[root] = &node{}
+	return &nonZeroRootNodeStore{
+		root:  root,
+		nodes: nodes,
+		live:  1,
+	}
+}
+
+func (s *nonZeroRootNodeStore) Root() uint64 {
+	return s.root
+}
+
+func (s *nonZeroRootNodeStore) Get(id uint64) (*NodePage, error) {
+	if id >= uint64(len(s.nodes)) || s.nodes[id] == nil {
+		return nil, ErrCorruptLayout
+	}
+	return s.nodes[id], nil
+}
+
+func (s *nonZeroRootNodeStore) Alloc() (uint64, *NodePage, error) {
+	id := uint64(len(s.nodes))
+	if id&childTag != 0 {
+		return 0, nil, ErrPositionTag
+	}
+	n := &node{}
+	s.nodes = append(s.nodes, n)
+	s.live++
+	return id, n, nil
+}
+
+func (s *nonZeroRootNodeStore) Free(id uint64) error {
+	if id == s.root || id >= uint64(len(s.nodes)) || s.nodes[id] == nil {
+		return ErrCorruptLayout
+	}
+	s.nodes[id] = nil
+	s.live--
+	return nil
+}
+
+func (s *nonZeroRootNodeStore) LiveNodes() int {
+	return s.live
+}
+
 func TestNodeLayout(t *testing.T) {
 	if got := int(unsafe.Sizeof(node{})); got != NodeSize {
 		t.Fatalf("sizeof(node{}) = %d, want %d", got, NodeSize)
@@ -146,6 +197,53 @@ func TestNewHeapReturnsOwnedRecordStore(t *testing.T) {
 	value, ok := records.Value(got)
 	if !ok || value != "payload" {
 		t.Fatalf("Value(%d) = (%q,%v), want (payload,true)", got, value, ok)
+	}
+}
+
+func TestDeleteUsesNodeStoreRoot(t *testing.T) {
+	keys := memKeys{}
+	idx := NewWithNodes(keys, newNonZeroRootNodeStore(3))
+
+	for i, key := range []string{"alpha", "bravo", "charlie"} {
+		pos := Position(i + 1)
+		keys[pos] = []byte(key)
+		if _, replaced, err := idx.Put([]byte(key), pos); err != nil || replaced {
+			t.Fatalf("Put(%q) replaced=%v err=%v", key, replaced, err)
+		}
+	}
+
+	deleted, ok, err := idx.Delete([]byte("bravo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || deleted != 2 {
+		t.Fatalf("Delete(bravo) = (%d,%v), want (2,true)", deleted, ok)
+	}
+	if _, ok, err := idx.Get([]byte("bravo")); err != nil || ok {
+		t.Fatalf("Get(bravo) after delete ok=%v err=%v", ok, err)
+	}
+	if idx.Len() != 2 {
+		t.Fatalf("Len = %d, want 2", idx.Len())
+	}
+}
+
+func TestRootReadErrorIsReturned(t *testing.T) {
+	idx := &Index{
+		records: memKeys{},
+		nodes:   NewHeapNodeStore(),
+		rootID:  99,
+	}
+
+	if _, err := idx.root(); err != ErrCorruptLayout {
+		t.Fatalf("root error = %v, want %v", err, ErrCorruptLayout)
+	}
+	if _, _, err := idx.Get([]byte("alpha")); err != ErrCorruptLayout {
+		t.Fatalf("Get error = %v, want %v", err, ErrCorruptLayout)
+	}
+	if err := idx.Ascend(func(_ []byte, _ Position) bool {
+		return true
+	}); err != ErrCorruptLayout {
+		t.Fatalf("Ascend error = %v, want %v", err, ErrCorruptLayout)
 	}
 }
 

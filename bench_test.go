@@ -554,7 +554,11 @@ func deleteHeavyPositions(tb testing.TB, data benchData) []Position {
 
 	idx := buildPatricia(tb, data)
 	var positions []Position
-	if err := idx.collectDeleteHeavyPositions(idx.root(), &positions); err != nil {
+	root, err := idx.root()
+	if err != nil {
+		tb.Fatal(err)
+	}
+	if err := idx.collectDeleteHeavyPositions(root, &positions); err != nil {
 		tb.Fatal(err)
 	}
 	if len(positions) == 0 {
