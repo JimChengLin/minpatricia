@@ -613,6 +613,46 @@ func TestMultiNodeAgainstMap(t *testing.T) {
 	}
 }
 
+func TestDeleteAllMaintainsRoutes(t *testing.T) {
+	keys := memKeys{}
+	idx := NewWithRecords(keys)
+	expected := map[string]Position{}
+
+	rng := rand.New(rand.NewSource(11))
+	var deleteOrder []string
+	nextPos := Position(1)
+	for len(expected) < 700 {
+		key := fmt.Sprintf("delete-%08x-%08x", rng.Uint32(), rng.Uint32())
+		if _, exists := expected[key]; exists {
+			continue
+		}
+		pos := nextPos
+		nextPos++
+		keys[pos] = []byte(key)
+		if _, replaced, err := idx.Put([]byte(key), pos); err != nil || replaced {
+			t.Fatalf("Put(%q) replaced=%v err=%v", key, replaced, err)
+		}
+		expected[key] = pos
+		deleteOrder = append(deleteOrder, key)
+	}
+
+	rng.Shuffle(len(deleteOrder), func(i, j int) {
+		deleteOrder[i], deleteOrder[j] = deleteOrder[j], deleteOrder[i]
+	})
+
+	for i, key := range deleteOrder {
+		want := expected[key]
+		got, deleted, err := idx.Delete([]byte(key))
+		if err != nil || !deleted || got != want {
+			t.Fatalf("Delete(%q) = (%d,%v,%v), want (%d,true,nil)", key, got, deleted, err, want)
+		}
+		delete(expected, key)
+		if i%17 == 0 || len(expected) == 0 {
+			assertIndexMatchesMap(t, idx, keys, expected)
+		}
+	}
+}
+
 func assertIndexMatchesMap(t *testing.T, idx *Index, keys memKeys, expected map[string]Position) {
 	t.Helper()
 

@@ -266,3 +266,60 @@ func (n *node) insertRouteAt(routeIdx int, diff uint16, leftCount uint16, leftAn
 		n.routes[ancestor].leftCount++
 	}
 }
+
+func (n *node) deleteRoute(slot int) error {
+	size := int(n.size)
+	if size <= 1 {
+		return ErrCorruptLayout
+	}
+	if slot < 0 || slot >= size {
+		return ErrCorruptLayout
+	}
+
+	var leftAncestors [MaxNodeReps]int
+	leftAncestorCount := 0
+	routeIdx := 0
+	leafBase := 0
+	leafCount := size
+	parentRouteIdx := -1
+
+	for leafCount > 1 {
+		if routeIdx < 0 || routeIdx >= size-1 {
+			return ErrCorruptLayout
+		}
+		r := n.routes[routeIdx]
+		leftCount := int(r.leftCount)
+		if leftCount <= 0 || leftCount >= leafCount {
+			return ErrCorruptLayout
+		}
+
+		parentRouteIdx = routeIdx
+		if slot < leafBase+leftCount {
+			if leftCount > 1 {
+				leftAncestors[leftAncestorCount] = routeIdx
+				leftAncestorCount++
+			}
+			routeIdx++
+			leafCount = leftCount
+		} else {
+			routeIdx += leftCount
+			leafBase += leftCount
+			leafCount -= leftCount
+		}
+	}
+
+	if leafBase != slot || parentRouteIdx < 0 {
+		return ErrCorruptLayout
+	}
+	n.deleteRouteAt(parentRouteIdx, leftAncestors[:leftAncestorCount])
+	return nil
+}
+
+func (n *node) deleteRouteAt(routeIdx int, leftAncestors []int) {
+	size := int(n.size)
+	copy(n.routes[routeIdx:], n.routes[routeIdx+1:size-1])
+	n.routes[size-2] = route{}
+	for _, ancestor := range leftAncestors {
+		n.routes[ancestor].leftCount--
+	}
+}

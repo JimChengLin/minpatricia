@@ -306,19 +306,10 @@ func (idx *Index) deleteFrom(id uint64, key []byte) (Position, bool, error) {
 			return 0, false, err
 		}
 		if compareKeys(recordKey, key) == 0 {
-			size := int(n.size)
-			var diffBuf [MaxNodeReps - 1]uint16
-			newDiffs := diffBuf[:0]
-			if size > 1 {
-				newDiffs = diffBuf[:size-2]
-			}
-			if err := idx.deleteDiffs(n, leaf, newDiffs); err != nil {
+			if err := idx.deleteAtIncremental(n, leaf); err != nil {
 				return 0, false, err
 			}
-			copy(n.reps[leaf:], n.reps[leaf+1:size])
-			n.reps[size-1] = 0
-			n.size = uint16(size - 1)
-			return oldPos, true, idx.rebuildNodeWithDiffs(n, newDiffs)
+			return oldPos, true, nil
 		}
 	} else {
 		childID := r.childID()
@@ -344,21 +335,13 @@ func (idx *Index) deleteFromChild(n *node, slot int, childID uint64, key []byte)
 	}
 	parentSize := int(n.size)
 	if child.size == 0 {
-		var diffBuf [MaxNodeReps - 1]uint16
-		newDiffs := diffBuf[:0]
-		if parentSize > 1 {
-			newDiffs = diffBuf[:parentSize-2]
-		}
-		if err := idx.deleteDiffs(n, slot, newDiffs); err != nil {
+		if err := idx.deleteAtIncremental(n, slot); err != nil {
 			return 0, false, err
 		}
-		copy(n.reps[slot:], n.reps[slot+1:parentSize])
-		n.reps[parentSize-1] = 0
-		n.size = uint16(parentSize - 1)
 		if err := idx.freeNode(childID); err != nil {
 			return 0, false, err
 		}
-		return pos, true, idx.rebuildNodeWithDiffs(n, newDiffs)
+		return pos, true, nil
 	}
 
 	childSize := int(child.size)
@@ -378,6 +361,46 @@ func (idx *Index) deleteFromChild(n *node, slot int, childID uint64, key []byte)
 	return pos, true, idx.rebuildParentAfterChildBoundary(n, slot, child, oldFirst, oldLast)
 }
 
+func (idx *Index) deleteAtIncremental(n *node, slot int) error {
+	size := int(n.size)
+	if slot < 0 || slot >= size {
+		return ErrCorruptLayout
+	}
+
+	if size == 1 {
+		n.reps[0] = 0
+		n.size = 0
+		n.firstPos = 0
+		n.lastPos = 0
+		return nil
+	}
+
+	firstPos, lastPos := n.firstPos, n.lastPos
+	var err error
+	if slot == 0 {
+		firstPos, err = idx.minPos(n.reps[1])
+		if err != nil {
+			return err
+		}
+	}
+	if slot == size-1 {
+		lastPos, err = idx.maxPos(n.reps[size-2])
+		if err != nil {
+			return err
+		}
+	}
+	if err := n.deleteRoute(slot); err != nil {
+		return err
+	}
+
+	copy(n.reps[slot:], n.reps[slot+1:size])
+	n.reps[size-1] = 0
+	n.size = uint16(size - 1)
+	n.firstPos = firstPos
+	n.lastPos = lastPos
+	return nil
+}
+
 func (idx *Index) rebuildParentAfterChildBoundary(n *node, slot int, child *node, oldFirst, oldLast Position) error {
 	size := int(n.size)
 	firstChanged := child.firstPos != oldFirst
@@ -387,43 +410,6 @@ func (idx *Index) rebuildParentAfterChildBoundary(n *node, slot int, child *node
 	}
 	if lastChanged && slot == size-1 {
 		n.lastPos = child.lastPos
-	}
-	return nil
-}
-
-func (idx *Index) deleteDiffs(n *node, slot int, newDiffs []uint16) error {
-	size := int(n.size)
-	if slot < 0 || slot >= size {
-		return ErrCorruptLayout
-	}
-	if size <= 1 {
-		if len(newDiffs) != 0 {
-			return ErrCorruptLayout
-		}
-		return nil
-	}
-	if len(newDiffs) != size-2 {
-		return ErrCorruptLayout
-	}
-
-	var oldDiffBuf [MaxNodeReps - 1]uint16
-	oldDiffs := oldDiffBuf[:size-1]
-	if err := n.routeDiffs(oldDiffs); err != nil {
-		return err
-	}
-
-	if slot > 1 {
-		copy(newDiffs[:slot-1], oldDiffs[:slot-1])
-	}
-	if slot > 0 && slot < size-1 {
-		diff, err := idx.diffBetweenReps(n.reps[slot-1], n.reps[slot+1])
-		if err != nil {
-			return err
-		}
-		newDiffs[slot-1] = diff
-	}
-	if slot < size-2 {
-		copy(newDiffs[slot:], oldDiffs[slot+1:])
 	}
 	return nil
 }
