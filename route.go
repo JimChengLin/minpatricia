@@ -173,6 +173,10 @@ func (n *node) insertSlotAbovePath(key []byte, diff uint16, wantLeaf int) (int, 
 			return 0, false, ErrCorruptLayout
 		}
 		r := n.routes[routeIdx]
+		leftCount := int(r.leftCount)
+		if leftCount <= 0 || leftCount >= leafCount {
+			return 0, false, ErrCorruptLayout
+		}
 		if diff < r.diff {
 			if getDiffBit(key, diff) == 0 {
 				return leafBase, true, nil
@@ -182,11 +186,11 @@ func (n *node) insertSlotAbovePath(key []byte, diff uint16, wantLeaf int) (int, 
 
 		if getDiffBit(key, r.diff) == 0 {
 			routeIdx++
-			leafCount = int(r.leftCount)
+			leafCount = leftCount
 		} else {
-			routeIdx += int(r.leftCount)
-			leafBase += int(r.leftCount)
-			leafCount -= int(r.leftCount)
+			routeIdx += leftCount
+			leafBase += leftCount
+			leafCount -= leftCount
 		}
 	}
 
@@ -202,7 +206,7 @@ func (n *node) insertRoute(slot int, key []byte, diff uint16) error {
 		return ErrCorruptLayout
 	}
 
-	var leftAncestors [MaxNodeReps]int
+	var leftAncestors [MaxNodeReps]uint16
 	leftAncestorCount := 0
 	routeIdx := 0
 	leafBase := 0
@@ -233,7 +237,7 @@ func (n *node) insertRoute(slot int, key []byte, diff uint16) error {
 		}
 
 		if getDiffBit(key, r.diff) == 0 {
-			leftAncestors[leftAncestorCount] = routeIdx
+			leftAncestors[leftAncestorCount] = uint16(routeIdx)
 			leftAncestorCount++
 			routeIdx++
 			leafCount = leftCount
@@ -255,7 +259,7 @@ func (n *node) insertRoute(slot int, key []byte, diff uint16) error {
 	return nil
 }
 
-func (n *node) insertRouteAt(routeIdx int, diff uint16, leftCount uint16, leftAncestors []int) {
+func (n *node) insertRouteAt(routeIdx int, diff uint16, leftCount uint16, leftAncestors []uint16) {
 	size := int(n.size)
 	copy(n.routes[routeIdx+1:size], n.routes[routeIdx:size-1])
 	n.routes[routeIdx] = route{
@@ -276,7 +280,7 @@ func (n *node) deleteRoute(slot int) error {
 		return ErrCorruptLayout
 	}
 
-	var leftAncestors [MaxNodeReps]int
+	var leftAncestors [MaxNodeReps]uint16
 	leftAncestorCount := 0
 	routeIdx := 0
 	leafBase := 0
@@ -296,7 +300,7 @@ func (n *node) deleteRoute(slot int) error {
 		parentRouteIdx = routeIdx
 		if slot < leafBase+leftCount {
 			if leftCount > 1 {
-				leftAncestors[leftAncestorCount] = routeIdx
+				leftAncestors[leftAncestorCount] = uint16(routeIdx)
 				leftAncestorCount++
 			}
 			routeIdx++
@@ -315,7 +319,7 @@ func (n *node) deleteRoute(slot int) error {
 	return nil
 }
 
-func (n *node) deleteRouteAt(routeIdx int, leftAncestors []int) {
+func (n *node) deleteRouteAt(routeIdx int, leftAncestors []uint16) {
 	size := int(n.size)
 	copy(n.routes[routeIdx:], n.routes[routeIdx+1:size-1])
 	n.routes[size-2] = route{}
