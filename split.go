@@ -1,5 +1,12 @@
 package minpatricia
 
+const (
+	// Smaller legal subtrees are left to the balanced fallback instead of
+	// creating tiny child pages that barely relieve parent pressure.
+	preferredSplitMinRatioNum = 1
+	preferredSplitMinRatioDen = 3
+)
+
 func (idx *Index) promoteSibling(parentID uint64, childSlot int, childID uint64, reps []rep) error {
 	if len(reps) != MaxNodeReps+1 {
 		return ErrCorruptLayout
@@ -164,9 +171,12 @@ func (idx *Index) chooseSplitRange(reps []rep, insertSlot int) (int, int, error)
 	left, right, root := idx.buildCartesian(diffs)
 
 	target := len(reps) / 2
+	minPreferredCount := (len(reps)*preferredSplitMinRatioNum + preferredSplitMinRatioDen - 1) / preferredSplitMinRatioDen
 	bestStart := -1
 	bestCount := 0
 	bestScore := len(reps)
+	preferredStart := -1
+	preferredCount := 0
 
 	stack := []routeFrame{{node: root, leafL: 0, leafR: len(reps)}}
 	for len(stack) > 0 {
@@ -180,6 +190,10 @@ func (idx *Index) chooseSplitRange(reps []rep, insertSlot int) (int, int, error)
 				bestStart = frame.leafL
 				bestCount = count
 				bestScore = score
+			}
+			if count >= minPreferredCount && count <= target && (preferredStart == -1 || count > preferredCount) {
+				preferredStart = frame.leafL
+				preferredCount = count
 			}
 		}
 
@@ -204,6 +218,11 @@ func (idx *Index) chooseSplitRange(reps []rep, insertSlot int) (int, int, error)
 		count := len(reps) / 2
 		start := (len(reps) - count) / 2
 		return start, count, nil
+	}
+	// Prefer the largest legal subtree that is big enough but no larger than
+	// half a page; otherwise fall back to the original balanced choice.
+	if preferredStart != -1 {
+		return preferredStart, preferredCount, nil
 	}
 	return bestStart, bestCount, nil
 }

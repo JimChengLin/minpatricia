@@ -47,6 +47,13 @@ func mutationBenchSizes() []benchSize {
 	return quickBenchSizes[len(quickBenchSizes)-1:]
 }
 
+func runComparisonBench(b *testing.B, name string, fn func(*testing.B)) {
+	if os.Getenv("MIN_PATRICIA_BENCH_ONLY") == "minpatricia" {
+		return
+	}
+	b.Run(name, fn)
+}
+
 type benchData struct {
 	keys     [][]byte
 	strings  []string
@@ -58,7 +65,7 @@ func BenchmarkGet(b *testing.B) {
 	for _, size := range benchSizes() {
 		data := newBenchData(size.n)
 
-		b.Run(size.name+"/go_map", func(b *testing.B) {
+		runComparisonBench(b, size.name+"/go_map", func(b *testing.B) {
 			m := buildGoMap(data)
 			b.ReportAllocs()
 			b.ResetTimer()
@@ -70,7 +77,7 @@ func BenchmarkGet(b *testing.B) {
 			_ = sink
 		})
 
-		b.Run(size.name+"/google_btree", func(b *testing.B) {
+		runComparisonBench(b, size.name+"/google_btree", func(b *testing.B) {
 			tree := buildBTree(data)
 			b.ReportAllocs()
 			b.ResetTimer()
@@ -109,7 +116,7 @@ func BenchmarkPutReplace(b *testing.B) {
 		data := newBenchData(size.n)
 		replacements := newReplacementPositions(data)
 
-		b.Run(size.name+"/go_map", func(b *testing.B) {
+		runComparisonBench(b, size.name+"/go_map", func(b *testing.B) {
 			m := buildGoMap(data)
 			b.ReportAllocs()
 			b.ResetTimer()
@@ -120,7 +127,7 @@ func BenchmarkPutReplace(b *testing.B) {
 			}
 		})
 
-		b.Run(size.name+"/google_btree", func(b *testing.B) {
+		runComparisonBench(b, size.name+"/google_btree", func(b *testing.B) {
 			tree := buildBTree(data)
 			b.ReportAllocs()
 			b.ResetTimer()
@@ -153,7 +160,7 @@ func BenchmarkPutInsert(b *testing.B) {
 	for _, size := range benchSizes() {
 		data := newBenchData(size.n)
 
-		b.Run(size.name+"/go_map", func(b *testing.B) {
+		runComparisonBench(b, size.name+"/go_map", func(b *testing.B) {
 			benchmarkPerItem(b, len(data.strings), func() {
 				m := make(map[string]Position, len(data.strings))
 				for j, key := range data.strings {
@@ -165,7 +172,7 @@ func BenchmarkPutInsert(b *testing.B) {
 			})
 		})
 
-		b.Run(size.name+"/google_btree", func(b *testing.B) {
+		runComparisonBench(b, size.name+"/google_btree", func(b *testing.B) {
 			benchmarkPerItem(b, len(data.strings), func() {
 				tree := btree.NewG(benchBTreeDegree, benchBTreeLess)
 				for j, key := range data.strings {
@@ -200,7 +207,7 @@ func BenchmarkVisitFullSetOrdered(b *testing.B) {
 	for _, size := range benchSizes() {
 		data := newBenchData(size.n)
 
-		b.Run(size.name+"/go_map_sort_keys", func(b *testing.B) {
+		runComparisonBench(b, size.name+"/go_map_sort_keys", func(b *testing.B) {
 			m := buildGoMap(data)
 			b.ReportAllocs()
 			b.ResetTimer()
@@ -219,7 +226,7 @@ func BenchmarkVisitFullSetOrdered(b *testing.B) {
 			_ = sink
 		})
 
-		b.Run(size.name+"/google_btree", func(b *testing.B) {
+		runComparisonBench(b, size.name+"/google_btree", func(b *testing.B) {
 			tree := buildBTree(data)
 			b.ReportAllocs()
 			b.ResetTimer()
@@ -257,7 +264,7 @@ func BenchmarkVisitFullSetReverse(b *testing.B) {
 	for _, size := range benchSizes() {
 		data := newBenchData(size.n)
 
-		b.Run(size.name+"/go_map_sort_keys", func(b *testing.B) {
+		runComparisonBench(b, size.name+"/go_map_sort_keys", func(b *testing.B) {
 			m := buildGoMap(data)
 			b.ReportAllocs()
 			b.ResetTimer()
@@ -276,7 +283,7 @@ func BenchmarkVisitFullSetReverse(b *testing.B) {
 			_ = sink
 		})
 
-		b.Run(size.name+"/google_btree", func(b *testing.B) {
+		runComparisonBench(b, size.name+"/google_btree", func(b *testing.B) {
 			tree := buildBTree(data)
 			b.ReportAllocs()
 			b.ResetTimer()
@@ -314,7 +321,7 @@ func BenchmarkSeek(b *testing.B) {
 	for _, size := range benchSizes() {
 		data := newBenchData(size.n)
 
-		b.Run(size.name+"/google_btree", func(b *testing.B) {
+		runComparisonBench(b, size.name+"/google_btree", func(b *testing.B) {
 			tree := buildBTree(data)
 			b.ReportAllocs()
 			b.ResetTimer()
@@ -364,7 +371,7 @@ func BenchmarkReverseSeek(b *testing.B) {
 	for _, size := range benchSizes() {
 		data := newBenchData(size.n)
 
-		b.Run(size.name+"/google_btree", func(b *testing.B) {
+		runComparisonBench(b, size.name+"/google_btree", func(b *testing.B) {
 			tree := buildBTree(data)
 			b.ReportAllocs()
 			b.ResetTimer()
@@ -425,7 +432,7 @@ func BenchmarkDeleteHeavy(b *testing.B) {
 			strings[i] = string(key)
 		}
 
-		b.Run(size.name+"/go_map", func(b *testing.B) {
+		runComparisonBench(b, size.name+"/go_map", func(b *testing.B) {
 			m := buildGoMap(data)
 			next := 0
 			b.ReportAllocs()
@@ -443,7 +450,7 @@ func BenchmarkDeleteHeavy(b *testing.B) {
 			}
 		})
 
-		b.Run(size.name+"/google_btree", func(b *testing.B) {
+		runComparisonBench(b, size.name+"/google_btree", func(b *testing.B) {
 			tree := buildBTree(data)
 			next := 0
 			b.ReportAllocs()

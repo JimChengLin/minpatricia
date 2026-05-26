@@ -50,18 +50,20 @@ Use `NewWithRecords(records)` when records live in your own store.
 
 Apple M1 Pro, Go 1.25.1,
 `MIN_PATRICIA_BENCH_LARGE=1 go test -run ^$ -bench . -benchmem -benchtime=500ms -count=1`.
-The table reports the 100K-key rows from the full benchmark suite.
+The table reports the 100K-key rows from the full benchmark suite. Set
+`MIN_PATRICIA_BENCH_ONLY=minpatricia` to skip the go map and google/btree
+comparison rows during local minpatricia-only runs.
 
 | operation | go map | google/btree | minpatricia |
 |---|---:|---:|---:|
-| Get | 17.85 ns/op | 269.8 ns/op | 132.2 ns/op |
-| Seek >= | - | 266.5 ns/op | 153.1 ns/op |
-| Seek <= | - | 283.6 ns/op | 153.1 ns/op |
-| Replace | 23.79 ns/op | 281.4 ns/op | 139.6 ns/op |
-| Build insert, per key | 21.84 ns/op | 311.3 ns/op | 568.6 ns/op |
-| Visit FullSet Ordered | 19,764,860 ns/op | 273,935 ns/op | 961,726 ns/op |
-| Visit FullSet Reverse | 23,854,895 ns/op | 267,344 ns/op | 1,020,794 ns/op |
-| Delete-heavy | 55.70 ns/op | 208.6 ns/op | 171.1 ns/op |
+| Get | 15.81 ns/op | 242.4 ns/op | 128.3 ns/op |
+| Seek >= | - | 253.4 ns/op | 153.0 ns/op |
+| Seek <= | - | 257.9 ns/op | 147.2 ns/op |
+| Replace | 21.63 ns/op | 253.7 ns/op | 134.3 ns/op |
+| Build insert, per key | 21.00 ns/op | 295.5 ns/op | 512.1 ns/op |
+| Visit FullSet Ordered | 16,834,654 ns/op | 237,255 ns/op | 886,110 ns/op |
+| Visit FullSet Reverse | 21,514,207 ns/op | 256,490 ns/op | 887,777 ns/op |
+| Delete-heavy | 59.08 ns/op | 202.7 ns/op | 135.9 ns/op |
 
 Node-store footprint for the same 100K-key benchmark. Node size is 4096
 bytes and each node can hold up to 339 route entries. This footprint excludes
@@ -69,8 +71,8 @@ caller-owned keys and payloads.
 
 | scenario | deleted records | live records | live nodes | node-store bytes | node-store bytes per live key |
 |---|---:|---:|---:|---:|---:|
-| Build | 0 | 100,000 | 513 | 2,101,248 bytes | 21.01 B/key |
-| Delete-heavy | 73,279 | 26,721 | 167 | 684,032 bytes | 25.60 B/key |
+| Build | 0 | 100,000 | 515 | 2,109,440 bytes | 21.09 B/key |
+| Delete-heavy | 32,412 | 67,588 | 508 | 2,080,768 bytes | 30.79 B/key |
 
 For a favorable google/btree comparison, key bytes and payloads are also
 excluded. google/btree still stores a key reference in each item: in this
@@ -82,7 +84,7 @@ comparator, which has no error path and is not a good fit for this index.
 
 | index | live records | live nodes | index bytes | index bytes per live key |
 |---|---:|---:|---:|---:|
-| minpatricia | 100,000 | 513 | 2,101,248 bytes | 21.01 B/key |
+| minpatricia | 100,000 | 515 | 2,109,440 bytes | 21.09 B/key |
 | google/btree estimated | 100,000 | 465 | 3,815,296 bytes | 38.15 B/key |
 
 ## Write Tradeoff
