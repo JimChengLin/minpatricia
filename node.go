@@ -479,7 +479,7 @@ func (n *node) isDirectRoutePair(diffIdx int) bool {
 		stack = stack[:len(stack)-1]
 
 		r := n.routes[frame.node]
-		leftCount := int(r.leftCount)
+		leftCount := int(r.leftCount())
 		currentDiff := frame.leafL + leftCount - 1
 		if currentDiff == diffIdx {
 			return frame.leafL == diffIdx && frame.leafR == diffIdx+2

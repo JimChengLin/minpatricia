@@ -38,8 +38,7 @@ func (r rep) childID() uint64 {
 }
 
 type route struct {
-	diff      uint16
-	leftCount uint16
+	bits uint32
 }
 
 // NodePage is the fixed-size opaque page stored by NodeStore.

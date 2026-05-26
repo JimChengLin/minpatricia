@@ -140,6 +140,29 @@ func TestDiffAndRouteErrorPaths(t *testing.T) {
 	if got := getDiffBit([]byte{0x80}, 1); got != 1 {
 		t.Fatalf("getDiffBit(0x80,1) = %d, want 1", got)
 	}
+	for _, tc := range []struct {
+		diff      uint16
+		leftCount uint16
+		key       []byte
+		wantBit   uint8
+	}{
+		{diff: 0, leftCount: 1, key: nil, wantBit: 0},
+		{diff: 0, leftCount: 1, key: []byte{0}, wantBit: 1},
+		{diff: 1, leftCount: 2, key: []byte{0x80}, wantBit: 1},
+		{diff: 8, leftCount: 3, key: []byte{1}, wantBit: 1},
+		{diff: maxDiff, leftCount: MaxNodeReps, key: nil, wantBit: 0},
+	} {
+		r := makeRoute(tc.diff, tc.leftCount)
+		if got := r.diff(); got != tc.diff {
+			t.Fatalf("route.diff(%d) = %d", tc.diff, got)
+		}
+		if got := r.leftCount(); got != tc.leftCount {
+			t.Fatalf("route.leftCount(%d) = %d, want %d", tc.diff, got, tc.leftCount)
+		}
+		if got := r.bit(tc.key); got != tc.wantBit {
+			t.Fatalf("route.bit(%x,%d) = %d, want %d", tc.key, tc.diff, got, tc.wantBit)
+		}
+	}
 
 	var empty node
 	if leaf, ok := empty.lookupRouteOnly([]byte("x")); ok || leaf != 0 {
@@ -201,7 +224,7 @@ func TestInternalBuildAndNodePaths(t *testing.T) {
 	empty := &node{
 		firstPos: 1,
 		lastPos:  2,
-		routes:   [MaxNodeReps - 1]route{{diff: 7, leftCount: 1}},
+		routes:   [MaxNodeReps - 1]route{makeRoute(7, 1)},
 	}
 	if err := idx.rebuildNodeWithDiffs(empty, nil); err != ErrCorruptLayout {
 		t.Fatalf("rebuildNodeWithDiffs empty err = %v, want %v", err, ErrCorruptLayout)

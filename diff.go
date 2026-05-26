@@ -79,22 +79,15 @@ func compareAndDiffBit(a, b []byte) (int, uint16, error) {
 
 func getDiffBit(key []byte, diff uint16) uint8 {
 	byteIdx := int(diff / 9)
-	bitIdx := int(diff % 9)
-
+	bitIdx := uint(diff % 9)
 	if bitIdx == 0 {
 		if byteIdx < len(key) {
 			return 1
 		}
 		return 0
 	}
-
 	if byteIdx >= len(key) {
 		return 0
 	}
-
-	mask := byte(0x80 >> uint(bitIdx-1))
-	if key[byteIdx]&mask != 0 {
-		return 1
-	}
-	return 0
+	return (key[byteIdx] >> (8 - bitIdx)) & 1
 }

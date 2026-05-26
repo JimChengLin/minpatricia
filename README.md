@@ -54,14 +54,14 @@ The table reports the 100K-key rows from the full benchmark suite.
 
 | operation | go map | google/btree | minpatricia |
 |---|---:|---:|---:|
-| Get | 17.85 ns/op | 274.2 ns/op | 159.0 ns/op |
-| Seek >= | - | 306.6 ns/op | 205.9 ns/op |
-| Seek <= | - | 293.0 ns/op | 195.0 ns/op |
-| Replace | 23.46 ns/op | 290.1 ns/op | 180.6 ns/op |
-| Build insert, per key | 22.34 ns/op | 317.1 ns/op | 708.1 ns/op |
-| Visit FullSet Ordered | 17,586,489 ns/op | 244,417 ns/op | 1,124,837 ns/op |
-| Visit FullSet Reverse | 22,302,987 ns/op | 259,422 ns/op | 1,043,315 ns/op |
-| Delete-heavy | 63.25 ns/op | 208.1 ns/op | 266.5 ns/op |
+| Get | 17.85 ns/op | 269.8 ns/op | 132.2 ns/op |
+| Seek >= | - | 266.5 ns/op | 153.1 ns/op |
+| Seek <= | - | 283.6 ns/op | 153.1 ns/op |
+| Replace | 23.79 ns/op | 281.4 ns/op | 139.6 ns/op |
+| Build insert, per key | 21.84 ns/op | 311.3 ns/op | 568.6 ns/op |
+| Visit FullSet Ordered | 19,764,860 ns/op | 273,935 ns/op | 961,726 ns/op |
+| Visit FullSet Reverse | 23,854,895 ns/op | 267,344 ns/op | 1,020,794 ns/op |
+| Delete-heavy | 55.70 ns/op | 208.6 ns/op | 171.1 ns/op |
 
 Node-store footprint for the same 100K-key benchmark. Node size is 4096
 bytes and each node can hold up to 339 route entries.

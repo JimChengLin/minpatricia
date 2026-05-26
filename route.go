@@ -6,6 +6,59 @@ type routeFrame struct {
 	leafR int
 }
 
+const (
+	routeByteMask        = 1<<13 - 1
+	routeBitOpOffset     = 13
+	routeBitOpMask       = 0xf
+	routeTermBitOp       = 8
+	routeLeftCountOffset = 17
+)
+
+// route stores the decoded diff operation beside leftCount so lookup avoids
+// dividing each route diff by 9 while walking the node.
+func makeRoute(diff uint16, leftCount uint16) route {
+	d := uint32(diff)
+	byteIdx := d / 9
+	bitOp := uint32(routeTermBitOp)
+	// bitOp is the shift count for byte bits, or routeTermBitOp for terminator diffs.
+	if bitIdx := d % 9; bitIdx != 0 {
+		bitOp = 8 - bitIdx
+	}
+	return route{
+		bits: byteIdx | bitOp<<routeBitOpOffset | uint32(leftCount)<<routeLeftCountOffset,
+	}
+}
+
+func (r route) diff() uint16 {
+	byteIdx := r.bits & routeByteMask
+	bitOp := (r.bits >> routeBitOpOffset) & routeBitOpMask
+	if bitOp == routeTermBitOp {
+		return uint16(byteIdx * 9)
+	}
+	return uint16(byteIdx*9 + 8 - bitOp)
+}
+
+func (r route) leftCount() uint16 {
+	return uint16(r.bits >> routeLeftCountOffset)
+}
+
+func (r *route) incLeftCount() {
+	r.bits += 1 << routeLeftCountOffset
+}
+
+func (r *route) decLeftCount() {
+	r.bits -= 1 << routeLeftCountOffset
+}
+
+func (r route) bit(key []byte) uint8 {
+	byteIdx := int(r.bits & routeByteMask)
+	if byteIdx >= len(key) {
+		return 0
+	}
+	bitOp := uint8(r.bits>>routeBitOpOffset) & routeBitOpMask
+	return bitOp>>3 | ((key[byteIdx] >> (bitOp & 7)) & 1)
+}
+
 func (idx *Index) buildCartesian(diffs []uint16) ([]int, []int, int) {
 	n := len(diffs)
 	if cap(idx.scratch.left) < n {
@@ -57,10 +110,7 @@ func (idx *Index) writePreorderRoutes(out []route, diffs []uint16, left, right [
 		stack = stack[:len(stack)-1]
 
 		i := frame.node
-		out[outIdx] = route{
-			diff:      diffs[i],
-			leftCount: uint16(i - frame.leafL + 1),
-		}
+		out[outIdx] = makeRoute(diffs[i], uint16(i-frame.leafL+1))
 		outIdx++
 
 		if right[i] != -1 {
@@ -97,13 +147,14 @@ func (n *node) lookupRouteOnly(key []byte) (int, bool) {
 
 	for leafCount > 1 {
 		r := n.routes[routeIdx]
-		if getDiffBit(key, r.diff) == 0 {
+		leftCount := int(r.leftCount())
+		if r.bit(key) == 0 {
 			routeIdx++
-			leafCount = int(r.leftCount)
+			leafCount = leftCount
 		} else {
-			routeIdx += int(r.leftCount)
-			leafBase += int(r.leftCount)
-			leafCount -= int(r.leftCount)
+			routeIdx += leftCount
+			leafBase += leftCount
+			leafCount -= leftCount
 		}
 	}
 	return leafBase, true
@@ -129,12 +180,12 @@ func (n *node) routeDiffs(out []uint16) error {
 			return ErrCorruptLayout
 		}
 		r := n.routes[frame.node]
-		leftCount := int(r.leftCount)
+		leftCount := int(r.leftCount())
 		diffIdx := frame.leafL + leftCount - 1
 		if leftCount <= 0 || diffIdx < frame.leafL || diffIdx >= frame.leafR-1 {
 			return ErrCorruptLayout
 		}
-		out[diffIdx] = r.diff
+		out[diffIdx] = r.diff()
 
 		rightIdx := frame.node + leftCount
 		if diffIdx+1 < frame.leafR-1 {
@@ -173,18 +224,18 @@ func (n *node) insertSlotAbovePath(key []byte, diff uint16, wantLeaf int) (int, 
 			return 0, false, ErrCorruptLayout
 		}
 		r := n.routes[routeIdx]
-		leftCount := int(r.leftCount)
+		leftCount := int(r.leftCount())
 		if leftCount <= 0 || leftCount >= leafCount {
 			return 0, false, ErrCorruptLayout
 		}
-		if diff < r.diff {
+		if diff < r.diff() {
 			if getDiffBit(key, diff) == 0 {
 				return leafBase, true, nil
 			}
 			return leafBase + leafCount, true, nil
 		}
 
-		if getDiffBit(key, r.diff) == 0 {
+		if r.bit(key) == 0 {
 			routeIdx++
 			leafCount = leftCount
 		} else {
@@ -217,12 +268,12 @@ func (n *node) insertRoute(slot int, key []byte, diff uint16) error {
 			return ErrCorruptLayout
 		}
 		r := n.routes[routeIdx]
-		leftCount := int(r.leftCount)
+		leftCount := int(r.leftCount())
 		if leftCount <= 0 || leftCount >= leafCount {
 			return ErrCorruptLayout
 		}
 
-		if diff < r.diff {
+		if diff < r.diff() {
 			newLeftCount := 1
 			expectedSlot := leafBase
 			if getDiffBit(key, diff) != 0 {
@@ -236,7 +287,7 @@ func (n *node) insertRoute(slot int, key []byte, diff uint16) error {
 			return nil
 		}
 
-		if getDiffBit(key, r.diff) == 0 {
+		if r.bit(key) == 0 {
 			leftAncestors[leftAncestorCount] = uint16(routeIdx)
 			leftAncestorCount++
 			routeIdx++
@@ -262,12 +313,9 @@ func (n *node) insertRoute(slot int, key []byte, diff uint16) error {
 func (n *node) insertRouteAt(routeIdx int, diff uint16, leftCount uint16, leftAncestors []uint16) {
 	size := int(n.size)
 	copy(n.routes[routeIdx+1:size], n.routes[routeIdx:size-1])
-	n.routes[routeIdx] = route{
-		diff:      diff,
-		leftCount: leftCount,
-	}
+	n.routes[routeIdx] = makeRoute(diff, leftCount)
 	for _, ancestor := range leftAncestors {
-		n.routes[ancestor].leftCount++
+		n.routes[ancestor].incLeftCount()
 	}
 }
 
@@ -292,7 +340,7 @@ func (n *node) deleteRoute(slot int) error {
 			return ErrCorruptLayout
 		}
 		r := n.routes[routeIdx]
-		leftCount := int(r.leftCount)
+		leftCount := int(r.leftCount())
 		if leftCount <= 0 || leftCount >= leafCount {
 			return ErrCorruptLayout
 		}
@@ -324,6 +372,6 @@ func (n *node) deleteRouteAt(routeIdx int, leftAncestors []uint16) {
 	copy(n.routes[routeIdx:], n.routes[routeIdx+1:size-1])
 	n.routes[size-2] = route{}
 	for _, ancestor := range leftAncestors {
-		n.routes[ancestor].leftCount--
+		n.routes[ancestor].decLeftCount()
 	}
 }
