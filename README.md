@@ -59,7 +59,8 @@ The table reports the 100K-key rows from the full benchmark suite.
 | Seek <= | - | 293.0 ns/op | 195.0 ns/op |
 | Replace | 23.46 ns/op | 290.1 ns/op | 180.6 ns/op |
 | Build insert, per key | 22.34 ns/op | 317.1 ns/op | 708.1 ns/op |
-| Visit ordered | 17,586,489 ns/op | 244,417 ns/op | 1,124,837 ns/op |
+| Visit FullSet Ordered | 17,586,489 ns/op | 244,417 ns/op | 1,124,837 ns/op |
+| Visit FullSet Reverse | 22,302,987 ns/op | 259,422 ns/op | 1,043,315 ns/op |
 | Delete-heavy | 63.25 ns/op | 208.1 ns/op | 266.5 ns/op |
 
 Node-store footprint for the same 100K-key benchmark. Node size is 4096

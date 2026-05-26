@@ -196,7 +196,7 @@ func BenchmarkPutInsert(b *testing.B) {
 	}
 }
 
-func BenchmarkVisitOrdered(b *testing.B) {
+func BenchmarkVisitFullSetOrdered(b *testing.B) {
 	for _, size := range benchSizes() {
 		data := newBenchData(size.n)
 
@@ -242,6 +242,63 @@ func BenchmarkVisitOrdered(b *testing.B) {
 			var sink Position
 			for i := 0; i < b.N; i++ {
 				if err := idx.Visit(func(_ []byte, pos Position) bool {
+					sink = pos
+					return true
+				}); err != nil {
+					b.Fatal(err)
+				}
+			}
+			_ = sink
+		})
+	}
+}
+
+func BenchmarkVisitFullSetReverse(b *testing.B) {
+	for _, size := range benchSizes() {
+		data := newBenchData(size.n)
+
+		b.Run(size.name+"/go_map_sort_keys", func(b *testing.B) {
+			m := buildGoMap(data)
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			var sink Position
+			for i := 0; i < b.N; i++ {
+				keys := make([]string, 0, len(m))
+				for key := range m {
+					keys = append(keys, key)
+				}
+				sort.Sort(sort.Reverse(sort.StringSlice(keys)))
+				for _, key := range keys {
+					sink = m[key]
+				}
+			}
+			_ = sink
+		})
+
+		b.Run(size.name+"/google_btree", func(b *testing.B) {
+			tree := buildBTree(data)
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			var sink Position
+			for i := 0; i < b.N; i++ {
+				tree.Descend(func(item benchBTreeItem) bool {
+					sink = item.pos
+					return true
+				})
+			}
+			_ = sink
+		})
+
+		b.Run(size.name+"/min_patricia", func(b *testing.B) {
+			idx := buildPatricia(b, data)
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			var sink Position
+			for i := 0; i < b.N; i++ {
+				if err := idx.Descend(func(_ []byte, pos Position) bool {
 					sink = pos
 					return true
 				}); err != nil {
