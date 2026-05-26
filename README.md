@@ -64,14 +64,26 @@ The table reports the 100K-key rows from the full benchmark suite.
 | Delete-heavy | 55.70 ns/op | 208.6 ns/op | 171.1 ns/op |
 
 Node-store footprint for the same 100K-key benchmark. Node size is 4096
-bytes and each node can hold up to 339 route entries.
+bytes and each node can hold up to 339 route entries. This footprint excludes
+caller-owned keys and payloads.
 
 | scenario | deleted records | live records | live nodes | node-store bytes | node-store bytes per live key |
 |---|---:|---:|---:|---:|---:|
 | Build | 0 | 100,000 | 513 | 2,101,248 bytes | 21.01 B/key |
 | Delete-heavy | 73,279 | 26,721 | 167 | 684,032 bytes | 25.60 B/key |
 
-This footprint excludes caller-owned keys and payloads.
+For a favorable google/btree comparison, key bytes and payloads are also
+excluded. google/btree still stores a key reference in each item: in this
+benchmark that is a 16-byte `string` header plus an 8-byte `Position`. The
+estimate below counts btree node structs, item backing arrays, child pointer
+arrays, and those item slots, but not the key bytes referenced by the strings.
+Storing only `Position` in google/btree would move key lookup into the
+comparator, which has no error path and is not a good fit for this index.
+
+| index | live records | live nodes | index bytes | index bytes per live key |
+|---|---:|---:|---:|---:|
+| minpatricia | 100,000 | 513 | 2,101,248 bytes | 21.01 B/key |
+| google/btree estimated | 100,000 | 465 | 3,815,296 bytes | 38.15 B/key |
 
 ## Write Tradeoff
 
