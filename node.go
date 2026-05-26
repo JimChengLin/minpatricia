@@ -2,6 +2,7 @@ package minpatricia
 
 type putFrame struct {
 	id   uint64
+	node *node
 	leaf int
 }
 

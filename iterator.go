@@ -140,7 +140,7 @@ func (idx *Index) seekGreaterOrEqual(key []byte, path *iterPath) (bool, error) {
 		if !ok {
 			return false, ErrCorruptLayout
 		}
-		path.push(id, leaf)
+		path.pushNode(id, n, leaf)
 
 		r := n.reps[leaf]
 		if r.isChild() {
@@ -186,7 +186,7 @@ func (idx *Index) seekLessOrEqual(key []byte, path *iterPath) (bool, error) {
 		if !ok {
 			return false, ErrCorruptLayout
 		}
-		path.push(id, leaf)
+		path.pushNode(id, n, leaf)
 
 		r := n.reps[leaf]
 		if r.isChild() {
@@ -221,7 +221,11 @@ func (p *iterPath) reset() {
 }
 
 func (p *iterPath) push(id uint64, leaf int) {
-	frame := putFrame{id: id, leaf: leaf}
+	p.pushNode(id, nil, leaf)
+}
+
+func (p *iterPath) pushNode(id uint64, n *node, leaf int) {
+	frame := putFrame{id: id, node: n, leaf: leaf}
 	if p.len < len(p.stack) {
 		p.stack[p.len] = frame
 	} else {
@@ -257,6 +261,21 @@ func (p *iterPath) framesForInsert() []putFrame {
 	return frames
 }
 
+func (idx *Index) nodeForFrame(frame *putFrame) (*node, error) {
+	if frame.node != nil {
+		return frame.node, nil
+	}
+	return idx.nodeForFrameSlow(frame)
+}
+
+// Keep the nil-node fallback out of nodeForFrame's inline budget so cached
+// iterator frames do not pay a call on the FullSet Visit hot path.
+//
+//go:noinline
+func (idx *Index) nodeForFrameSlow(frame *putFrame) (*node, error) {
+	return idx.nodeByID(frame.id)
+}
+
 func (idx *Index) positionAtOrAfter(path *iterPath, target int, slot int) (bool, error) {
 	if target < 0 || target >= path.len {
 		return false, ErrCorruptLayout
@@ -265,7 +284,7 @@ func (idx *Index) positionAtOrAfter(path *iterPath, target int, slot int) (bool,
 
 	for {
 		frame := path.at(path.len - 1)
-		n, err := idx.nodeByID(frame.id)
+		n, err := idx.nodeForFrame(frame)
 		if err != nil {
 			return false, err
 		}
@@ -298,7 +317,7 @@ func (idx *Index) positionAtOrBefore(path *iterPath, target int, slot int) (bool
 
 	for {
 		frame := path.at(path.len - 1)
-		n, err := idx.nodeByID(frame.id)
+		n, err := idx.nodeForFrame(frame)
 		if err != nil {
 			return false, err
 		}
@@ -357,7 +376,7 @@ func (idx *Index) leftmostRecord(path *iterPath, id uint64) (bool, error) {
 		if n.size == 0 {
 			return false, ErrCorruptLayout
 		}
-		path.push(id, 0)
+		path.pushNode(id, n, 0)
 
 		r := n.reps[0]
 		if r.isChild() {
@@ -378,7 +397,7 @@ func (idx *Index) rightmostRecord(path *iterPath, id uint64) (bool, error) {
 			return false, ErrCorruptLayout
 		}
 		leaf := int(n.size) - 1
-		path.push(id, leaf)
+		path.pushNode(id, n, leaf)
 
 		r := n.reps[leaf]
 		if r.isChild() {
@@ -392,7 +411,7 @@ func (idx *Index) rightmostRecord(path *iterPath, id uint64) (bool, error) {
 func (idx *Index) nextPath(path *iterPath) (bool, error) {
 	for path.len > 0 {
 		frame := path.at(path.len - 1)
-		n, err := idx.nodeByID(frame.id)
+		n, err := idx.nodeForFrame(frame)
 		if err != nil {
 			return false, err
 		}
@@ -413,7 +432,7 @@ func (idx *Index) nextPath(path *iterPath) (bool, error) {
 func (idx *Index) prevPath(path *iterPath) (bool, error) {
 	for path.len > 0 {
 		frame := path.at(path.len - 1)
-		n, err := idx.nodeByID(frame.id)
+		n, err := idx.nodeForFrame(frame)
 		if err != nil {
 			return false, err
 		}
@@ -435,8 +454,8 @@ func (idx *Index) currentRecord(path *iterPath) ([]byte, Position, error) {
 	if path.len == 0 {
 		return nil, 0, ErrCorruptLayout
 	}
-	frame := *path.at(path.len - 1)
-	n, err := idx.nodeByID(frame.id)
+	frame := path.at(path.len - 1)
+	n, err := idx.nodeForFrame(frame)
 	if err != nil {
 		return nil, 0, err
 	}
