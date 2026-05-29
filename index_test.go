@@ -240,6 +240,9 @@ func TestRootReadErrorIsReturned(t *testing.T) {
 	if _, _, err := idx.Get([]byte("alpha")); err != ErrCorruptLayout {
 		t.Fatalf("Get error = %v, want %v", err, ErrCorruptLayout)
 	}
+	if _, _, err := idx.Probe([]byte("alpha")); err != ErrCorruptLayout {
+		t.Fatalf("Probe error = %v, want %v", err, ErrCorruptLayout)
+	}
 	if err := idx.Ascend(func(_ []byte, _ Position) bool {
 		return true
 	}); err != ErrCorruptLayout {
@@ -267,6 +270,13 @@ func TestPutGetDeleteVisit(t *testing.T) {
 		}
 		if !ok || got != Position(i+1) {
 			t.Fatalf("Get(%q) = (%d, %v), want (%d, true)", key, got, ok, i+1)
+		}
+		probed, ok, err := idx.Probe([]byte(key))
+		if err != nil {
+			t.Fatalf("Probe(%q): %v", key, err)
+		}
+		if !ok || probed != Position(i+1) {
+			t.Fatalf("Probe(%q) = (%d, %v), want (%d, true)", key, probed, ok, i+1)
 		}
 	}
 
@@ -303,6 +313,42 @@ func TestPutGetDeleteVisit(t *testing.T) {
 	}
 	if contains(visited, "bravo") {
 		t.Fatalf("deleted key still visited: %v", visited)
+	}
+}
+
+func TestProbeDoesNotVerifyRecordKey(t *testing.T) {
+	keys := memKeys{1: []byte("alpha")}
+	calls := 0
+	records := RecordStoreFunc(func(pos Position) ([]byte, bool) {
+		calls++
+		key, ok := keys[pos]
+		return key, ok
+	})
+	idx := NewWithRecords(records)
+	if _, replaced, err := idx.Put([]byte("alpha"), 1); err != nil || replaced {
+		t.Fatalf("Put(alpha) replaced=%v err=%v", replaced, err)
+	}
+
+	calls = 0
+	got, ok, err := idx.Probe([]byte("omega"))
+	if err != nil || !ok || got != 1 {
+		t.Fatalf("Probe(omega) = (%d,%v,%v), want (1,true,nil)", got, ok, err)
+	}
+	if calls != 0 {
+		t.Fatalf("Probe read RecordStore.Key %d times, want 0", calls)
+	}
+
+	got, ok, err = idx.Get([]byte("omega"))
+	if err != nil || ok || got != 0 {
+		t.Fatalf("Get(omega) = (%d,%v,%v), want (0,false,nil)", got, ok, err)
+	}
+	if calls != 1 {
+		t.Fatalf("Get read RecordStore.Key %d times, want 1", calls)
+	}
+
+	empty := NewWithRecords(memKeys{})
+	if got, ok, err := empty.Probe([]byte("alpha")); err != nil || ok || got != 0 {
+		t.Fatalf("empty Probe(alpha) = (%d,%v,%v), want (0,false,nil)", got, ok, err)
 	}
 }
 
@@ -713,6 +759,13 @@ func assertIndexMatchesMap(t *testing.T, idx *Index, keys memKeys, expected map[
 		}
 		if !ok || got != want {
 			t.Fatalf("Get(%q) = (%d,%v), want (%d,true)", key, got, ok, want)
+		}
+		probed, ok, err := idx.Probe([]byte(key))
+		if err != nil {
+			t.Fatalf("Probe(%q): %v", key, err)
+		}
+		if !ok || probed != want {
+			t.Fatalf("Probe(%q) = (%d,%v), want (%d,true)", key, probed, ok, want)
 		}
 		if !bytes.Equal(keys[got], []byte(key)) {
 			t.Fatalf("position %d has key %q, want %q", got, keys[got], key)

@@ -75,6 +75,27 @@ func (idx *Index) Len() int {
 }
 
 func (idx *Index) Get(key []byte) (Position, bool, error) {
+	pos, ok, err := idx.Probe(key)
+	if err != nil || !ok {
+		return pos, ok, err
+	}
+
+	recordKey, err := idx.key(pos)
+	if err != nil {
+		return 0, false, err
+	}
+	if compareKeys(recordKey, key) != 0 {
+		return 0, false, nil
+	}
+	return pos, true, nil
+}
+
+// Probe returns the record position reached by routing key through the trie.
+//
+// Probe does not read RecordStore and therefore does not verify that the
+// returned position's key exactly matches key. Callers that only need to compare
+// the routed position can use it to avoid the extra key lookup done by Get.
+func (idx *Index) Probe(key []byte) (Position, bool, error) {
 	if err := checkKeySize(key); err != nil {
 		return 0, false, err
 	}
@@ -99,15 +120,7 @@ func (idx *Index) Get(key []byte) (Position, bool, error) {
 			continue
 		}
 
-		pos := r.position()
-		recordKey, err := idx.key(pos)
-		if err != nil {
-			return 0, false, err
-		}
-		if compareKeys(recordKey, key) != 0 {
-			return 0, false, nil
-		}
-		return pos, true, nil
+		return r.position(), true, nil
 	}
 }
 

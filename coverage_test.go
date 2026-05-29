@@ -61,6 +61,9 @@ func TestConstructorsAndPublicErrorPaths(t *testing.T) {
 	if _, _, err := idx.Get(tooLarge); err != ErrKeyTooLarge {
 		t.Fatalf("Get too-large err = %v, want %v", err, ErrKeyTooLarge)
 	}
+	if _, _, err := idx.Probe(tooLarge); err != ErrKeyTooLarge {
+		t.Fatalf("Probe too-large err = %v, want %v", err, ErrKeyTooLarge)
+	}
 	if _, _, err := idx.Put(tooLarge, 1); err != ErrKeyTooLarge {
 		t.Fatalf("Put too-large err = %v, want %v", err, ErrKeyTooLarge)
 	}
