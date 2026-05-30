@@ -659,6 +659,123 @@ func TestMultiNodeAgainstMap(t *testing.T) {
 	}
 }
 
+func TestPutReplaceUpdatesBoundaryCaches(t *testing.T) {
+	idx, records := NewHeap[struct{}]()
+
+	rng := rand.New(rand.NewSource(13))
+	seen := map[string]struct{}{}
+	for len(seen) < 2500 {
+		key := fmt.Sprintf("replace-%08x-%08x", rng.Uint32(), rng.Uint32())
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		pos := records.Add([]byte(key), struct{}{})
+		if _, replaced, err := idx.Put([]byte(key), pos); err != nil || replaced {
+			t.Fatalf("Put(%q) replaced=%v err=%v", key, replaced, err)
+		}
+	}
+
+	root, err := idx.root()
+	if err != nil {
+		t.Fatal(err)
+	}
+	childSlot := -1
+	for i := 0; i+1 < int(root.size); i++ {
+		if root.reps[i].isChild() {
+			childSlot = i
+			break
+		}
+	}
+	if childSlot == -1 {
+		t.Fatalf("test setup has no non-last child in root")
+	}
+
+	child, err := idx.nodeByID(root.reps[childSlot].childID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldChildLast := child.lastPos
+	key, ok := records.Key(oldChildLast)
+	if !ok {
+		t.Fatalf("missing key at child last position %d", oldChildLast)
+	}
+	newChildLast := records.Add(append([]byte(nil), key...), struct{}{})
+	old, replaced, err := idx.Put(key, newChildLast)
+	if err != nil || !replaced || old != oldChildLast {
+		t.Fatalf("replace child last old=%d replaced=%v err=%v, want old=%d replaced=true", old, replaced, err, oldChildLast)
+	}
+	if err := records.Free(oldChildLast); err != nil {
+		t.Fatal(err)
+	}
+	if child.lastPos != newChildLast {
+		t.Fatalf("child lastPos = %d, want %d", child.lastPos, newChildLast)
+	}
+	assertIndexRoutesValid(t, idx)
+
+	root, err = idx.root()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootSize := int(root.size)
+	if rootSize == 0 {
+		t.Fatalf("empty root after inserts")
+	}
+
+	if root.reps[0].isChild() {
+		child, err = idx.nodeByID(root.reps[0].childID())
+		if err != nil {
+			t.Fatal(err)
+		}
+		oldFirst := child.firstPos
+		key, ok = records.Key(oldFirst)
+		if !ok {
+			t.Fatalf("missing key at child first position %d", oldFirst)
+		}
+		newFirst := records.Add(append([]byte(nil), key...), struct{}{})
+		old, replaced, err = idx.Put(key, newFirst)
+		if err != nil || !replaced || old != oldFirst {
+			t.Fatalf("replace root first old=%d replaced=%v err=%v, want old=%d replaced=true", old, replaced, err, oldFirst)
+		}
+		if err := records.Free(oldFirst); err != nil {
+			t.Fatal(err)
+		}
+		if child.firstPos != newFirst {
+			t.Fatalf("child firstPos = %d, want %d", child.firstPos, newFirst)
+		}
+		if root.firstPos != newFirst {
+			t.Fatalf("root firstPos = %d, want %d", root.firstPos, newFirst)
+		}
+	} else if root.reps[rootSize-1].isChild() {
+		child, err = idx.nodeByID(root.reps[rootSize-1].childID())
+		if err != nil {
+			t.Fatal(err)
+		}
+		oldLast := child.lastPos
+		key, ok = records.Key(oldLast)
+		if !ok {
+			t.Fatalf("missing key at child last position %d", oldLast)
+		}
+		newLast := records.Add(append([]byte(nil), key...), struct{}{})
+		old, replaced, err = idx.Put(key, newLast)
+		if err != nil || !replaced || old != oldLast {
+			t.Fatalf("replace root last old=%d replaced=%v err=%v, want old=%d replaced=true", old, replaced, err, oldLast)
+		}
+		if err := records.Free(oldLast); err != nil {
+			t.Fatal(err)
+		}
+		if child.lastPos != newLast {
+			t.Fatalf("child lastPos = %d, want %d", child.lastPos, newLast)
+		}
+		if root.lastPos != newLast {
+			t.Fatalf("root lastPos = %d, want %d", root.lastPos, newLast)
+		}
+	} else {
+		t.Fatalf("test setup has no edge child in root")
+	}
+	assertIndexRoutesValid(t, idx)
+}
+
 func TestDeleteAllMaintainsRoutes(t *testing.T) {
 	keys := memKeys{}
 	idx := NewWithRecords(keys)

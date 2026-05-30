@@ -36,8 +36,24 @@ func (idx *Index) insertOrReplace(key []byte, newRep rep) (Position, bool, error
 		}
 		cmp := compareKeys(key, recordKey)
 		if cmp == 0 {
+			oldFirst, oldLast := n.firstPos, n.lastPos
+			firstPos, lastPos := oldFirst, oldLast
+			if leaf == 0 {
+				firstPos, err = idx.minPos(newRep)
+				if err != nil {
+					return 0, false, err
+				}
+			}
+			if leaf == int(n.size)-1 {
+				lastPos, err = idx.maxPos(newRep)
+				if err != nil {
+					return 0, false, err
+				}
+			}
 			n.reps[leaf] = newRep
-			return oldPos, true, nil
+			n.firstPos = firstPos
+			n.lastPos = lastPos
+			return oldPos, true, idx.propagateBoundary(frames, len(frames)-1, oldFirst, oldLast)
 		}
 
 		diff, err := findDiffBit(key, recordKey)
