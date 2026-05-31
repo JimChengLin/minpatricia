@@ -17,7 +17,6 @@ var (
 	ErrUnsortedKeys     = errors.New("minpatricia: reps are not sorted by key")
 	ErrMissingKey       = errors.New("minpatricia: record store has no key for position")
 	ErrPositionTag      = errors.New("minpatricia: record position uses reserved high bit")
-	ErrPositionKey      = errors.New("minpatricia: record position key does not match input key")
 	ErrPositionMismatch = errors.New("minpatricia: routed position does not match expected position")
 	ErrDuplicateKey     = errors.New("minpatricia: duplicate key in node")
 	ErrCorruptLayout    = errors.New("minpatricia: corrupt node layout")

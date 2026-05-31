@@ -45,6 +45,7 @@ func main() {
 ```
 
 Use `NewWithRecords(records)` when records live in your own store.
+`Put` trusts that `pos` stores `key` and does not validate `records.Key(pos)`.
 
 ## Benchmarks
 

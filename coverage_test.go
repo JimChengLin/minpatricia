@@ -100,12 +100,6 @@ func TestConstructorsAndPublicErrorPaths(t *testing.T) {
 		Position(childTag): []byte("tagged"),
 	}
 	idx = NewWithRecords(keys)
-	if _, _, err := idx.Put([]byte("missing"), 99); err != ErrMissingKey {
-		t.Fatalf("Put missing pos err = %v, want %v", err, ErrMissingKey)
-	}
-	if _, _, err := idx.Put([]byte("mismatch"), 1); err != ErrPositionKey {
-		t.Fatalf("Put mismatched key err = %v, want %v", err, ErrPositionKey)
-	}
 	if _, _, err := idx.Put([]byte("tagged"), Position(childTag)); err != ErrPositionTag {
 		t.Fatalf("Put tagged position err = %v, want %v", err, ErrPositionTag)
 	}

@@ -145,14 +145,6 @@ func (idx *Index) Put(key []byte, pos Position) (Position, bool, error) {
 		return 0, false, err
 	}
 
-	recordKey, err := idx.key(pos)
-	if err != nil {
-		return 0, false, err
-	}
-	if compareKeys(recordKey, key) != 0 {
-		return 0, false, ErrPositionKey
-	}
-
 	newRep, err := makeRecordRep(pos)
 	if err != nil {
 		return 0, false, err

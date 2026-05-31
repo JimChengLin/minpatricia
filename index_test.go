@@ -316,6 +316,41 @@ func TestPutGetDeleteVisit(t *testing.T) {
 	}
 }
 
+func TestPutSkipsNewPositionKey(t *testing.T) {
+	keys := memKeys{
+		1: []byte("alpha"),
+		9: []byte("alpha"),
+	}
+	var calls []Position
+	records := RecordStoreFunc(func(pos Position) ([]byte, bool) {
+		calls = append(calls, pos)
+		key, ok := keys[pos]
+		return key, ok
+	})
+	idx := NewWithRecords(records)
+
+	calls = nil
+	old, replaced, err := idx.Put([]byte("alpha"), 1)
+	if err != nil || replaced || old != 0 {
+		t.Fatalf("Put insert = (%d,%v,%v), want (0,false,nil)", old, replaced, err)
+	}
+	if len(calls) != 0 {
+		t.Fatalf("Put insert read RecordStore.Key at %v, want none", calls)
+	}
+
+	calls = nil
+	old, replaced, err = idx.Put([]byte("alpha"), 9)
+	if err != nil || !replaced || old != 1 {
+		t.Fatalf("Put replace = (%d,%v,%v), want (1,true,nil)", old, replaced, err)
+	}
+	if got := fmt.Sprint(calls); got != "[1]" {
+		t.Fatalf("Put replace read positions %s, want [1]", got)
+	}
+	if got, ok, err := idx.Probe([]byte("alpha")); err != nil || !ok || got != 9 {
+		t.Fatalf("Probe(alpha) after Put = (%d,%v,%v), want (9,true,nil)", got, ok, err)
+	}
+}
+
 func TestProbeDoesNotVerifyRecordKey(t *testing.T) {
 	keys := memKeys{1: []byte("alpha")}
 	calls := 0
