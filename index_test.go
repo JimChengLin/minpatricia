@@ -352,6 +352,139 @@ func TestProbeDoesNotVerifyRecordKey(t *testing.T) {
 	}
 }
 
+func TestRetargetOnlyWalksIndexNodes(t *testing.T) {
+	keys := memKeys{
+		1: []byte("alpha"),
+		2: []byte("bravo"),
+	}
+	calls := 0
+	records := RecordStoreFunc(func(pos Position) ([]byte, bool) {
+		calls++
+		key, ok := keys[pos]
+		return key, ok
+	})
+	idx := NewWithRecords(records)
+	for _, tc := range []struct {
+		key string
+		pos Position
+	}{
+		{key: "alpha", pos: 1},
+		{key: "bravo", pos: 2},
+	} {
+		if _, replaced, err := idx.Put([]byte(tc.key), tc.pos); err != nil || replaced {
+			t.Fatalf("Put(%q) replaced=%v err=%v", tc.key, replaced, err)
+		}
+	}
+
+	keys[9] = []byte("alpha")
+	calls = 0
+	if err := idx.Retarget([]byte("alpha"), 1, 9); err != nil {
+		t.Fatalf("Retarget(alpha,1,9): %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("Retarget read RecordStore.Key %d times, want 0", calls)
+	}
+	if got, ok, err := idx.Probe([]byte("alpha")); err != nil || !ok || got != 9 {
+		t.Fatalf("Probe(alpha) after Retarget = (%d,%v,%v), want (9,true,nil)", got, ok, err)
+	}
+	if got, ok, err := idx.Get([]byte("alpha")); err != nil || !ok || got != 9 {
+		t.Fatalf("Get(alpha) after Retarget = (%d,%v,%v), want (9,true,nil)", got, ok, err)
+	}
+
+	if err := idx.Retarget([]byte("alpha"), 1, 10); err != ErrPositionMismatch {
+		t.Fatalf("Retarget old mismatch err = %v, want %v", err, ErrPositionMismatch)
+	}
+	if err := idx.Retarget([]byte("alpha"), 9, Position(childTag)); err != ErrPositionTag {
+		t.Fatalf("Retarget tagged newPos err = %v, want %v", err, ErrPositionTag)
+	}
+	if got, ok, err := idx.Probe([]byte("alpha")); err != nil || !ok || got != 9 {
+		t.Fatalf("Probe(alpha) after failed Retarget = (%d,%v,%v), want (9,true,nil)", got, ok, err)
+	}
+
+	empty := NewWithRecords(memKeys{})
+	if err := empty.Retarget([]byte("alpha"), 1, 2); err != ErrPositionMismatch {
+		t.Fatalf("empty Retarget err = %v, want %v", err, ErrPositionMismatch)
+	}
+}
+
+func TestRetargetUpdatesBoundaryCaches(t *testing.T) {
+	idx, records := NewHeap[struct{}]()
+
+	rng := rand.New(rand.NewSource(17))
+	seen := map[string]struct{}{}
+	for len(seen) < 2500 {
+		key := fmt.Sprintf("retarget-%08x-%08x", rng.Uint32(), rng.Uint32())
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		pos := records.Add([]byte(key), struct{}{})
+		if _, replaced, err := idx.Put([]byte(key), pos); err != nil || replaced {
+			t.Fatalf("Put(%q) replaced=%v err=%v", key, replaced, err)
+		}
+	}
+
+	root, err := idx.root()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootSize := int(root.size)
+	if rootSize == 0 {
+		t.Fatalf("empty root after inserts")
+	}
+
+	if root.reps[0].isChild() {
+		child, err := idx.nodeByID(root.reps[0].childID())
+		if err != nil {
+			t.Fatal(err)
+		}
+		oldFirst := child.firstPos
+		key, ok := records.Key(oldFirst)
+		if !ok {
+			t.Fatalf("missing key at child first position %d", oldFirst)
+		}
+		newFirst := records.Add(append([]byte(nil), key...), struct{}{})
+		if err := idx.Retarget(key, oldFirst, newFirst); err != nil {
+			t.Fatalf("Retarget root first: %v", err)
+		}
+		if err := records.Free(oldFirst); err != nil {
+			t.Fatal(err)
+		}
+		if child.firstPos != newFirst {
+			t.Fatalf("child firstPos = %d, want %d", child.firstPos, newFirst)
+		}
+		if root.firstPos != newFirst {
+			t.Fatalf("root firstPos = %d, want %d", root.firstPos, newFirst)
+		}
+	} else if root.reps[rootSize-1].isChild() {
+		child, err := idx.nodeByID(root.reps[rootSize-1].childID())
+		if err != nil {
+			t.Fatal(err)
+		}
+		oldLast := child.lastPos
+		key, ok := records.Key(oldLast)
+		if !ok {
+			t.Fatalf("missing key at child last position %d", oldLast)
+		}
+		newLast := records.Add(append([]byte(nil), key...), struct{}{})
+		if err := idx.Retarget(key, oldLast, newLast); err != nil {
+			t.Fatalf("Retarget root last: %v", err)
+		}
+		if err := records.Free(oldLast); err != nil {
+			t.Fatal(err)
+		}
+		if child.lastPos != newLast {
+			t.Fatalf("child lastPos = %d, want %d", child.lastPos, newLast)
+		}
+		if root.lastPos != newLast {
+			t.Fatalf("root lastPos = %d, want %d", root.lastPos, newLast)
+		}
+	} else {
+		t.Fatalf("test setup has no edge child in root")
+	}
+	assertIndexRoutesValid(t, idx)
+}
+
 func TestIteratorAPI(t *testing.T) {
 	keys := memKeys{}
 	idx := NewWithRecords(keys)

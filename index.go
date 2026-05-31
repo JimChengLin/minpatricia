@@ -124,6 +124,22 @@ func (idx *Index) Probe(key []byte) (Position, bool, error) {
 	}
 }
 
+// Retarget replaces the routed record position when Probe(key) equals oldPos.
+//
+// Retarget only walks index nodes. It does not read RecordStore and therefore
+// assumes newPos refers to the same key as oldPos.
+func (idx *Index) Retarget(key []byte, oldPos, newPos Position) error {
+	if err := checkKeySize(key); err != nil {
+		return err
+	}
+
+	newRep, err := makeRecordRep(newPos)
+	if err != nil {
+		return err
+	}
+	return idx.retarget(key, oldPos, newRep)
+}
+
 func (idx *Index) Put(key []byte, pos Position) (Position, bool, error) {
 	if err := checkKeySize(key); err != nil {
 		return 0, false, err
